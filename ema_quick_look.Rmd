@@ -1,0 +1,283 @@
+---
+title: "ema_baseline"
+author: "matthew"
+date: '`r Sys.Date()`'
+output:
+  html_document: default
+  pdf_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, warning=FALSE, message=FALSE)
+```
+
+
+Our objective is to determine associations between mood and rumination
+The relevant variables here seem to be ratings of happiness & sadness, and the 8 rumination items
+
+Let's try making 2 models: sad ~ rumination sum, happy ~ rumination sum
+
+But first explore the data a bit
+
+
+```{r,quiet=TRUE}
+library(tidyverse)
+library(ggstance)
+library(rmcorr)
+library(lme4)
+library(ordinal)
+```
+
+
+Load the data
+
+```{r}
+df = read_csv('baseline_r_20240222.csv')
+head(df)
+```
+
+
+total number of submissions
+```{r}
+df %>%
+  select(Response_Id) %>%
+  unique() %>%
+  nrow()
+```
+
+
+number of particpants
+```{r}
+df %>%
+  select(User_Id) %>%
+  unique() %>%
+  nrow()
+```
+
+
+submissions per participant
+```{r}
+df %>%
+  group_by(User_Id) %>%
+  count() %>%
+  summary()
+```
+
+
+survey submission time distribution
+```{r}
+
+# df %>%
+#   group_by(Response_Id) %>%
+#   select(c(Response_Id,Survey_Submitted_Time)) %>%
+#   #mutate(Survey_Submitted_Time = as.POSIXlt(Survey_Submitted_Time)) %>%
+#   #mutate(Survey_Submitted_Time = as.POSIXct(Survey_Submitted_Time)) %>%
+#   ggplot(aes(x=1:nrow(df),y=Survey_Submitted_Time)) +
+#   geom_dotplot(binaxis = "y", stackdir = "center", dotsize = 0.5)
+#   #scale_y_continuous(trans = rev_date)
+#   #scale_y_reverse()
+
+```
+
+
+calculate rumination score
+sum of all rumination items (5-12)
+```{r}
+
+df = df %>%
+  mutate(User_Id = as.factor(User_Id)) %>%
+  mutate(rumination = rowSums(select(.,c(
+    Start_Feeling_Handle,Start_Feeling_Problems,Start_Feeling_move_forward,
+    Start_Feeling_Sensations,Start_Feeling_Again,Start_Feeling_Wanting,
+    Start_Feeling_Stuck,Start_Feeling_Negative_Thoughts))
+    ))
+
+```
+
+
+scatter plot: sad vs. rum
+fit a regression line for each participant
+```{r}
+df %>%
+  ggplot(show.legend=F) +
+  geom_point(aes(x=rumination,y=Start_Feeling_Sad,color=User_Id),show.legend=F,
+             position=ggstance::position_dodgev(height=0.3)) +
+  geom_smooth(aes(x=rumination,y=Start_Feeling_Sad,color=User_Id),method="lm",se=F,
+              show.legend=F) +
+  geom_smooth(aes(x=rumination,y=Start_Feeling_Sad),method="lm",se=F,
+              show.legend=F,color="black",linewidth=1.5,linetype=2) +
+  labs(title = "Negative mood vs. Rumination", subtitle = "(colored by participant)",
+       x="Rumination (sum of rumination items)", y="Sadness Rating (1-5)")
+```
+
+
+Let's separate the plots by participant
+```{r,fig.width=12,fig.height=10}
+df %>%
+  ggplot(aes(x=rumination,y=Start_Feeling_Sad,color=User_Id),show.legend=F) +
+  geom_point(show.legend=F,position=ggstance::position_dodgev(height=0.3)) +
+  geom_smooth(method = "lm",se = F, show.legend=F) +
+  facet_wrap(~User_Id) +
+  labs(title = "Negative mood vs. Rumination", subtitle = "(colored by participant)",
+       x="Rumination (sum of rumination items)", y="Sad Rating (1-5)")
+```
+
+
+Same for positive mood
+scatter plot: happy vs. rum
+```{r}
+df %>%
+  ggplot(show.legend=F) +
+  geom_point(aes(x=rumination,y=Start_Feeling_Happy,color=User_Id),show.legend=F,
+             position=ggstance::position_dodgev(height=0.3)) +
+  geom_smooth(aes(x=rumination,y=Start_Feeling_Happy,color=User_Id),method="lm",se=F,
+              show.legend=F) +
+  geom_smooth(aes(x=rumination,y=Start_Feeling_Happy),method="lm",se=F,
+              show.legend=F,color="black",linewidth=1.5,linetype=2) +
+  labs(title = "Positive mood vs. Rumination", subtitle = "(colored by participant)",
+       x="Rumination (sum of rumination items)", y="Happy Rating (1-5)")
+```
+
+
+```{r,fig.width=12,fig.height=10}
+df %>%
+  ggplot(aes(x=rumination,y=Start_Feeling_Happy,color=User_Id),show.legend=F) +
+  geom_point(show.legend=F,position=ggstance::position_dodgev(height=0.3)) +
+  geom_smooth(method = "lm",se=F,show.legend=F) +
+  facet_wrap(~User_Id) +
+  labs(title = "Positive mood vs. Rumination", subtitle = "(colored by participant)",
+       x="Rumination (sum of rumination items)", y="Happy Rating (1-5)")
+```
+
+
+*rmcorr*
+Let's try repeated measures correlation to evaluate the association between
+mood and rumination
+
+First, negative mood (sad) correlated with rumination
+```{r}
+scorr = rmcorr(
+  participant = User_Id, 
+  measure1 = rumination, 
+  measure2 = Start_Feeling_Sad,
+  dataset = df)
+
+scorr
+```
+
+
+A not very useful plot of the model
+Note that rmcorr allows subjects to have different intercepts, but not slopes
+```{r}
+splt_label <- paste0("r = ", round(scorr$r, 3), " (95% CI: [", paste0(round(scorr$CI, 3), collapse = ", "), "])")
+#par(mar = rep(2, 4))
+plot(scorr, main = splt_label, xlab = "Rumination", ylab = "Sad rating")
+```
+
+
+Now the same for positive mood
+```{r}
+hcorr = rmcorr(
+  participant = User_Id, 
+  measure1 = rumination, 
+  measure2 = Start_Feeling_Happy,
+  dataset = df)
+
+hcorr
+```
+
+
+```{r}
+hplt_label <- paste0("r = ", round(hcorr$r, 3), " (95% CI: [", paste0(round(hcorr$CI, 3), collapse = ", "), "])")
+#par(mar = rep(2, 4))
+plot(hcorr, main = hplt_label, xlab = "Rumination", ylab = "Happy rating")
+```
+
+
+
+*lmer*
+
+Now let's try some mixed modelling
+LMM effect of rumination score on sadness rating
+add random intercept & slope for participant
+test significance via likelihood ratio
+```{r}
+lms_n = lmer(Start_Feeling_Sad ~ 1 + (1 + rumination|User_Id), data = df, REML = FALSE)
+lms = lmer(Start_Feeling_Sad ~ rumination + (1 + rumination|User_Id), data = df, REML = FALSE)
+summary(lms)
+```
+
+```{r}
+anova(lms,lms_n)
+```
+
+```{r}
+lmh_n = lmer(Start_Feeling_Happy ~ 1 + (1 + rumination|User_Id), data = df, REML = FALSE)
+lmh = lmer(Start_Feeling_Happy ~ rumination + (1 + rumination|User_Id), data = df, REML = FALSE)
+summary(lmh)
+```
+
+```{r}
+anova(lmh,lmh_n)
+```
+
+According to these models, there is a significant positive effect of rumination on negative mood
+& negative effect of rumination on positive mood
+
+
+BUT!
+Likert data are ordinal and violate the assumptions of GLM
+(linear mixed models may or may not be appropriate for ordinal data)
+
+to properly model ordinal data, let's use cumulative linked mixed models
+from the ordinal r package
+
+first, change dependent variable datatypes to ordinal
+```{r}
+df_o = df %>%
+  mutate(Start_Feeling_Sad = as.ordered(Start_Feeling_Sad),
+         Start_Feeling_Happy = as.ordered(Start_Feeling_Happy))
+df_o
+```
+
+model builds similar to lme4
+```{r}
+clms_n = clmm(Start_Feeling_Sad ~ 1 + (1 + rumination|User_Id), data = df_o)
+clms = clmm(Start_Feeling_Sad ~ rumination + (1 + rumination|User_Id), data = df_o)
+clms
+```
+
+```{r}
+anova(clms,clms_n)
+```
+
+Per AIC, there is less unexplained variation when rumination is included in
+the model compared to when it is not
+
+The chisquared value is significant
+
+Now the same CLM for positive mood
+```{r}
+clmh_n = clmm(Start_Feeling_Happy ~ 1 + (1 + rumination|User_Id), data = df_o)
+clmh = clmm(Start_Feeling_Happy ~ rumination + (1 + rumination|User_Id), data = df_o)
+clmh
+```
+
+```{r}
+anova(clmh_n,clmh)
+```
+
+All of the approaches show a momentary positive relationship between rumination and negative mood,
+and a momentary negative relationship between rumination and positive mood
+
+
+
+```{r}
+
+
+
+```
+
+
+
+

@@ -1,0 +1,121 @@
+---
+title: "ema_grant_models.rmd"
+author: "matthew"
+date: "`r Sys.Date()`"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, warning=FALSE, message=FALSE)
+```
+
+If Question 14 is tagged as positive (negative event occurred recently), we would use question 15 as an index of the negativity (a covariate), an average of 17 and 18 as a marker of focus at time of event (potential covariate unless colinear with predictor), and average of questions 5-12 (rumination habit) to predict an average of questions 1- 4 (INVERT 2)
+
+```{r}
+library(tidyverse)
+library(lme4)
+library(performance)
+library(emmeans)
+library(modelbased)
+```
+
+askd
+
+```{r}
+df = read_csv("baseline_r_20240222.csv")
+df = df %>%
+  rename(
+    response_id=Response_Id,
+    user_id=User_Id,
+    start_date=Survey_Started_Date,
+    start_time=Survey_Started_Time,
+    submit_date=Survey_Submitted_Date,
+    submit_time=Survey_Submitted_Time,
+    time_zone=Time_Zone,
+    study_day=Study_Day,
+    feeling_sad=Start_Feeling_Sad,
+    feeling_happy=Start_Feeling_Happy,
+    feeling_anxious=Start_Feeling_anxious,
+    feeling_annoyed=Start_Feeling_Annoyed,
+    rum_1=Start_Feeling_Handle,
+    rum_2=Start_Feeling_Problems,
+    rum_3=Start_Feeling_move_forward,
+    rum_4=Start_Feeling_Sensations,
+    rum_5=Start_Feeling_Again,
+    rum_6=Start_Feeling_Wanting,
+    rum_7=Start_Feeling_Stuck,
+    rum_8=Start_Feeling_Negative_Thoughts,
+    event_occured=quest_1676672138796,
+    event_mood=quest_1677010062008,
+    event_arousal=Time_Of_Event_Calm,
+    event_focus_self=Why_I_Felt,
+    event_focus_env=Why_I_Felt_1658258003578
+    ) %>%
+  select(
+    response_id,user_id,start_date,start_time,submit_date,submit_time,time_zone,
+    study_day,feeling_sad,feeling_happy,feeling_anxious,feeling_annoyed,
+    rum_1,rum_2,rum_3,rum_4,rum_5,rum_6,rum_7,rum_8,event_occured,event_mood,
+    event_arousal,event_focus_self,event_focus_env
+  ) %>%
+  mutate_all(~ replace(.,.=="CONDITION_SKIPPED",NA)) %>%
+  mutate(
+    event_mood = as.double(event_mood),
+    event_arousal = as.double(event_arousal),
+    event_focus_self = as.double(event_focus_self),
+    event_focus_env = as.double(event_focus_env)) %>%
+  rowwise() %>%
+  mutate(
+    feeling_happy_rev = 6 - feeling_happy
+  ) %>%
+  mutate(
+    mood_avg = mean(c(feeling_sad,feeling_happy_rev,feeling_anxious,feeling_annoyed)),
+    rum_avg = mean(c(rum_1,rum_2,rum_3,rum_4,rum_5,rum_6,rum_7,rum_8)),
+    event_focus_avg = mean(c(event_focus_self,event_focus_env))) %>%
+  ungroup()
+df
+```
+
+negative mood: 1-4
+rumination: 5-12
+negative event happened: 14
+mood at event: 15
+focus at event: 17,18
+
+Model:
+
+Negative mood (average) ~ Rumination (average) + Negative event happened recently + Mood at time of event + Focus at time of event
+
+```{r}
+model = lmer(
+  mood_avg ~ rum_avg + event_occured + event_mood + event_focus_avg + (1 + rum_avg|user_id), 
+  data = df,
+  REML = F)
+
+model_null = lmer(
+  mood_avg ~ event_occured + event_mood + event_focus_avg + (1 + rum_avg|user_id), 
+  data = df,
+  REML = F)
+
+summary(model)
+```
+
+```{r}
+anova(model_null,model)
+```
+
+```{r}
+rum.emm = emmeans(model,~rum_avg)
+rum.emm
+```
+
+```{r}
+check_collinearity(model)
+```
+
+```{r,fig.height=12,fig.width=15}
+check_model(model)
+```
+
+```{r}
+check_normality(model)
+```
